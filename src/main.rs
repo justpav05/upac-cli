@@ -103,8 +103,8 @@ fn main() {
         Command::Files { package } => app.run(package::files(&package)),
         Command::Deps  { package } => app.run(package::deps(&package)),
         Command::Repo(cmd) => match cmd {
-            RepoCommand::Add    { url } => app.run(repo::add(&url)),
-            RepoCommand::Remove { url } => app.run(repo::remove(&url)),
+            RepoCommand::Add    { url } => app.run(repo::add(url)),
+            RepoCommand::Remove { url } => app.run(repo::remove(url)),
             RepoCommand::Update        => app.run(repo::update()),
         },
     };

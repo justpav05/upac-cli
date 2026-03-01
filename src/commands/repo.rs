@@ -1,42 +1,36 @@
-use crate::app::{AppResult, DbMessage, ErrorMessage};
+use crate::app::{AppResult, ErrorMessage};
 
-use upac_core_lib::{Backend, UpacConfig};
+use upac_core_lib::{Backend, Installer, OStreeRepo, UpacConfig};
 
 use std::sync::mpsc::Sender;
 
 pub(crate) fn add(
-    url: &str,
+    url: String,
 ) -> impl FnOnce(
-    &Sender<DbMessage>,
-    &Sender<ErrorMessage>,
+    &mut Installer,
+    Option<&OStreeRepo>,
     &UpacConfig,
     &[Box<dyn Backend>],
-) -> AppResult<()>
-       + Send
-       + 'static {
-    move |database_tx, error_tx, config, _backends| todo!()
+) -> AppResult<()> {
+    move |installer, ostree, config, backends| todo!()
 }
 
 pub(crate) fn remove(
-    url: &str,
+    url: String,
 ) -> impl FnOnce(
-    &Sender<DbMessage>,
-    &Sender<ErrorMessage>,
+    &mut Installer,
+    Option<&OStreeRepo>,
     &UpacConfig,
     &[Box<dyn Backend>],
-) -> AppResult<()>
-       + Send
-       + 'static {
-    move |database_tx, error_tx, config, _backends| todo!()
+) -> AppResult<()> {
+    move |installer, ostree, config, backends| todo!()
 }
 
 pub(crate) fn update() -> impl FnOnce(
-    &Sender<DbMessage>,
-    &Sender<ErrorMessage>,
+    &mut Installer,
+    Option<&OStreeRepo>,
     &UpacConfig,
     &[Box<dyn Backend>],
-) -> AppResult<()>
-       + Send
-       + 'static {
-    move |database_tx, error_tx, config, _backends| todo!()
+) -> AppResult<()> {
+    move |installer, ostree, config, backends| todo!()
 }

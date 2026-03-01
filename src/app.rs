@@ -2,7 +2,6 @@ use upac_core_lib::{Backend, Installer, PackageDatabase, InstallEvent, Config, D
 
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread::JoinHandle;
-use std::sync::Arc;
 use std::thread;
 use std::io;
 
@@ -57,7 +56,7 @@ impl App {
         let _ = Self::spawn_error_thread(error_rx)?;
         let _ = Self::spawn_installer_message_thread(install_rx)?;
 
-        let boxed_database: Box<dyn PackageDatabase + 'static> = Box::new(database);
+        let boxed_database: Box<dyn PackageDatabase> = Box::new(database);
 
         let installer = Installer::new(
         	boxed_database,
@@ -78,7 +77,7 @@ impl App {
             ostree,
             config,
             error_tx,
-            backends: Arc::new(backends),
+            backends,
         })
     }
 
@@ -125,14 +124,13 @@ impl App {
 
     pub fn run<F>(&mut self, command: F) -> AppResult<()>
         where
-            F: FnOnce(&mut Installer, Option<&OStreeRepo>, &UpacConfig, &[Box<dyn Backend>], &Sender<ErrorMessage>) -> AppResult<()>,
+            F: FnOnce(&mut Installer, Option<&OStreeRepo>, &UpacConfig, &[Box<dyn Backend>]) -> AppResult<()>,
         {
             command(
                 &mut self.installer,
                 self.ostree.as_ref(),
                 &self.config,
                 &self.backends,
-                &self.error_tx,
             )
         }
     }
