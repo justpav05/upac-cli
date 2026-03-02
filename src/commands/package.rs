@@ -1,9 +1,7 @@
 use crate::app::{AppResult, AppError};
 use crate::{InstallOptions, RemoveOptions, SearchOptions, UpdateOptions, UpgradeOptions};
 
-use upac_core_lib::{Backend, Database, Install, Installer, OStreeRepo, PackageDiff, PackageRegistry, PackageRepo, UpacConfig};
-
-use std::path::Path;
+use upac_core_lib::{Backend, Database, Install, Installer, InstallerError, OStreeRepo, PackageDiff, PackageRegistry, PackageRepo, UpacConfig};
 
 pub(crate) fn install(
     options: InstallOptions,
@@ -17,27 +15,25 @@ pub(crate) fn install(
     move |installer, ostree, config, database, backends| {
     	// Проверка существования пути пакета
         if !&options.package.exists() {
-            return Err(AppError::CommandError(
-                format!("File not found: {}", &options.package.display())
-            ));
+            return Err(AppError::CommandError(format!("File not found: {}", &options.package.display())));
         }
 
         // Выбор бекенда для пакета
         let backend = backends.iter().find(|backend| backend.detect(&options.package)).ok_or_else(|| AppError::CommandError(format!("Unsupported package format: {}", &options.package.display())))?;
 
         // Извлекаем пакет во временную директорию
-        let extracted_package = backend.extract(&options.package, &config.temp_dir).map_err(|err| AppError::CommandError(err.to_string()))?;
+        let extracted_package = backend.extract(&options.package, &config.temp_dir)?;
 
         // Устанавливаем
-        installer.install(&extracted_package).map_err(|err| AppError::CommandError(err.to_string()))?;
+        installer.install(&extracted_package)?;
 
         // Если ostree включён — делаем коммит
         if config.ostree.enabled {
-            let packages = installer.list_packages().map_err(|err| AppError::CommandError(err.to_string()))?;
+            let packages = installer.list_packages()?;
 
             let mut packages_files = Vec::new();
             for package in &packages {
-                packages_files.extend(installer.list_files(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?);
+                packages_files.extend(installer.list_files(&package.name)?);
             }
 
             let diff = PackageDiff {
@@ -46,7 +42,7 @@ pub(crate) fn install(
                 updated: vec![],
             };
 
-            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff).map_err(|err| AppError::CommandError(err.to_string()))?;
+            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff)?;
         }
 
         Ok(())
@@ -65,14 +61,14 @@ pub(crate) fn remove(
     move |installer, ostree, config, database, backends| {
         let package = database.get_package(&options.package).map_err(|err| AppError::CommandError(err.to_string()))?.ok_or_else(|| AppError::CommandError(format!("Package not found: {}", options.package)))?;
 
-        installer.remove(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?;
+        installer.remove(&package.name)?;
 
         if config.ostree.enabled {
-            let packages = installer.list_packages().map_err(|err| AppError::CommandError(err.to_string()))?;
+            let packages = installer.list_packages()?;
 
             let mut packages_files = Vec::new();
             for package in &packages {
-                packages_files.extend(installer.list_files(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?);
+                packages_files.extend(installer.list_files(&package.name)?);
             }
 
             let diff = PackageDiff {
@@ -81,7 +77,7 @@ pub(crate) fn remove(
                 updated: vec![],
             };
 
-            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff).map_err(|err| AppError::CommandError(err.to_string()))?;
+            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff)?;
         }
 
         Ok(())

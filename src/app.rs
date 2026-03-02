@@ -1,9 +1,12 @@
-use upac_core_lib::{Backend, Installer, PackageDatabase, InstallEvent, Config, Database, OStreeRepo, UpacConfig};
+use upac_core_lib::{
+    Backend, Config, Database, InstallEvent, Installer, OStreeError, OStreeRepo, PackageDatabase,
+    UpacConfig,
+};
 
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread::JoinHandle;
-use std::thread;
 use std::io;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
+use std::thread::JoinHandle;
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
 
@@ -18,6 +21,19 @@ impl From<io::Error> for AppError {
         AppError::InitError(err.to_string())
     }
 }
+
+impl From<OStreeError> for AppError {
+    fn from(err: OStreeError) -> Self {
+        AppError::CommandError(err.to_string())
+    }
+}
+
+impl From<InstallerError> for AppError {
+    fn from(err: InstallerError) -> Self {
+        AppError::CommandError(err.to_string())
+    }
+}
+
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,12 +50,12 @@ pub enum ErrorMessage {
 }
 
 pub struct App {
-    config:    UpacConfig,
+    config: UpacConfig,
     installer: Installer,
-    ostree:    Option<OStreeRepo>,
-    database:  Database,
-    error_tx:  Sender<ErrorMessage>,
-    backends:  Vec<Box<dyn Backend>>,
+    ostree: Option<OStreeRepo>,
+    database: Database,
+    error_tx: Sender<ErrorMessage>,
+    backends: Vec<Box<dyn Backend>>,
 }
 
 impl App {
@@ -60,17 +76,21 @@ impl App {
         let boxed_database: Box<dyn PackageDatabase> = Box::new(database.clone());
 
         let installer = Installer::new(
-        	boxed_database,
-         	config.ostree.enabled,
-         	config.root_dir.clone(),
-         	config.package_dir.clone(),
-         	config.temp_dir.clone(),
-         	install_tx);
+            boxed_database,
+            config.ostree.enabled,
+            config.root_dir.clone(),
+            config.package_dir.clone(),
+            config.temp_dir.clone(),
+            install_tx,
+        );
 
         let ostree = if config.ostree.enabled {
-            Some(OStreeRepo::open(config.ostree.repo_path.clone()).map_err(|err| AppError::InitError(err.to_string()))?)
+            Some(
+                OStreeRepo::open(config.ostree.repo_path.clone())
+                    .map_err(|err| AppError::InitError(err.to_string()))?,
+            )
         } else {
-        	None
+            None
         };
 
         Ok(Self {
@@ -83,24 +103,33 @@ impl App {
         })
     }
 
-    fn spawn_installer_message_thread(install_rx: Receiver<InstallEvent>) ->AppResult<JoinHandle<()>> {
+    fn spawn_installer_message_thread(
+        install_rx: Receiver<InstallEvent>,
+    ) -> AppResult<JoinHandle<()>> {
         let installer_thread = thread::Builder::new()
             .name(String::from("installer"))
             .spawn(move || {
                 for message in install_rx {
                     match message {
-                        InstallEvent::InstallStarted { package, total_files } =>
-                            println!("Installing {} ({} files)...", package, total_files),
-                        InstallEvent::FileInstalled { current, total, .. } =>
-                            print!("\rProgress: {}/{}", current, total),
-                        InstallEvent::InstallFinished { package } =>
-                            println!("\nDone: {} installed", package),
-                        InstallEvent::RemoveStarted { package } =>
-                            println!("Removing {}...", package),
-                        InstallEvent::RemoveFinished { package } =>
-                            println!("Done: {} removed", package),
-                        InstallEvent::Failed { package, reason } =>
-                            eprintln!("Failed {}: {}", package, reason),
+                        InstallEvent::InstallStarted {
+                            package,
+                            total_files,
+                        } => println!("Installing {} ({} files)...", package, total_files),
+                        InstallEvent::FileInstalled { current, total, .. } => {
+                            print!("\rProgress: {}/{}", current, total)
+                        }
+                        InstallEvent::InstallFinished { package } => {
+                            println!("\nDone: {} installed", package)
+                        }
+                        InstallEvent::RemoveStarted { package } => {
+                            println!("Removing {}...", package)
+                        }
+                        InstallEvent::RemoveFinished { package } => {
+                            println!("Done: {} removed", package)
+                        }
+                        InstallEvent::Failed { package, reason } => {
+                            eprintln!("Failed {}: {}", package, reason)
+                        }
                         _ => {}
                     }
                 }
@@ -109,34 +138,40 @@ impl App {
         Ok(installer_thread)
     }
 
-    fn spawn_error_thread(error_rx: Receiver<ErrorMessage>) ->AppResult<JoinHandle<()>> {
+    fn spawn_error_thread(error_rx: Receiver<ErrorMessage>) -> AppResult<JoinHandle<()>> {
         let error_thread = thread::Builder::new()
             .name(String::from("error"))
             .spawn(move || {
                 for message in error_rx {
-                match message {
-                    ErrorMessage::Error(msg) => eprintln!("Error: {msg}"),
-                    ErrorMessage::Shutdown => break,
+                    match message {
+                        ErrorMessage::Error(msg) => eprintln!("Error: {msg}"),
+                        ErrorMessage::Shutdown => break,
+                    }
                 }
-            }
-        })?;
+            })?;
 
         Ok(error_thread)
     }
 
     pub fn run<F>(&mut self, command: F) -> AppResult<()>
-        where
-            F: FnOnce(&mut Installer, Option<&OStreeRepo>, &UpacConfig, &Database, &[Box<dyn Backend>]) -> AppResult<()>,
-        {
-            command(
-                &mut self.installer,
-                self.ostree.as_ref(),
-                &self.config,
-                &self.database,
-                &self.backends,
-            )
-        }
+    where
+        F: FnOnce(
+            &mut Installer,
+            Option<&OStreeRepo>,
+            &UpacConfig,
+            &Database,
+            &[Box<dyn Backend>],
+        ) -> AppResult<()>,
+    {
+        command(
+            &mut self.installer,
+            self.ostree.as_ref(),
+            &self.config,
+            &self.database,
+            &self.backends,
+        )
     }
+}
 
 impl Drop for App {
     fn drop(&mut self) {
