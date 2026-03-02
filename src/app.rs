@@ -37,6 +37,7 @@ pub struct App {
     config:    UpacConfig,
     installer: Installer,
     ostree:    Option<OStreeRepo>,
+    database:  Database,
     error_tx:  Sender<ErrorMessage>,
     backends:  Vec<Box<dyn Backend>>,
 }
@@ -56,7 +57,7 @@ impl App {
         let _ = Self::spawn_error_thread(error_rx)?;
         let _ = Self::spawn_installer_message_thread(install_rx)?;
 
-        let boxed_database: Box<dyn PackageDatabase> = Box::new(database);
+        let boxed_database: Box<dyn PackageDatabase> = Box::new(database.clone());
 
         let installer = Installer::new(
         	boxed_database,
@@ -76,6 +77,7 @@ impl App {
             installer,
             ostree,
             config,
+            database,
             error_tx,
             backends,
         })
@@ -124,12 +126,13 @@ impl App {
 
     pub fn run<F>(&mut self, command: F) -> AppResult<()>
         where
-            F: FnOnce(&mut Installer, Option<&OStreeRepo>, &UpacConfig, &[Box<dyn Backend>]) -> AppResult<()>,
+            F: FnOnce(&mut Installer, Option<&OStreeRepo>, &UpacConfig, &Database, &[Box<dyn Backend>]) -> AppResult<()>,
         {
             command(
                 &mut self.installer,
                 self.ostree.as_ref(),
                 &self.config,
+                &self.database,
                 &self.backends,
             )
         }

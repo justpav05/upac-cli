@@ -1,8 +1,6 @@
-use crate::app::{AppResult, ErrorMessage};
+use crate::app::{AppResult};
 
-use upac_core_lib::{Backend, Installer, OStreeRepo, UpacConfig};
-
-use std::sync::mpsc::Sender;
+use upac_core_lib::{Backend, Installer, Database, OStreeRepo, UpacConfig};
 
 pub(crate) fn add(
     url: String,
@@ -10,9 +8,10 @@ pub(crate) fn add(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| todo!()
+    move |installer, ostree, config, database, backends| todo!()
 }
 
 pub(crate) fn remove(
@@ -21,16 +20,18 @@ pub(crate) fn remove(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| todo!()
+    move |installer, ostree, config, database, backends| todo!()
 }
 
 pub(crate) fn update() -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| todo!()
+    move |installer, ostree, config, database, backends| todo!()
 }

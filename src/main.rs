@@ -7,6 +7,8 @@ use commands::repo;
 
 use app::App;
 
+use std::path::PathBuf;
+
 mod app;
 mod commands;
 
@@ -40,7 +42,7 @@ enum RepoCommand {
 
 #[derive(Args, Default)]
 pub struct InstallOptions {
-    pub package: String,
+    pub package: PathBuf,
     #[arg(short, long)] pub yes:      bool,
     #[arg(short, long)] pub force:    bool,
     #[arg(short, long)] pub download: bool,

@@ -1,65 +1,52 @@
 use crate::app::{AppResult, AppError};
 use crate::{InstallOptions, RemoveOptions, SearchOptions, UpdateOptions, UpgradeOptions};
 
-use upac_core_lib::{Backend, UpacConfig, Installer, Install, OStreeRepo, PackageRepo, PackageDiff};
+use upac_core_lib::{Backend, Database, Install, Installer, OStreeRepo, PackageDiff, PackageRegistry, PackageRepo, UpacConfig};
 
 use std::path::Path;
 
 pub(crate) fn install(
-    opts: InstallOptions,
+    options: InstallOptions,
 ) -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
-        let path = Path::new(&opts.package);
-
-        if !path.exists() {
+    move |installer, ostree, config, database, backends| {
+    	// Проверка существования пути пакета
+        if !&options.package.exists() {
             return Err(AppError::CommandError(
-                format!("File not found: {}", path.display())
+                format!("File not found: {}", &options.package.display())
             ));
         }
 
-        // Ищем подходящий бэкенд
-        let backend = backends
-            .iter()
-            .find(|backend| backend.detect(path))
-            .ok_or_else(|| AppError::CommandError(
-                format!("Unsupported package format: {}", path.display())
-            ))?;
+        // Выбор бекенда для пакета
+        let backend = backends.iter().find(|backend| backend.detect(&options.package)).ok_or_else(|| AppError::CommandError(format!("Unsupported package format: {}", &options.package.display())))?;
 
         // Извлекаем пакет во временную директорию
-        let extracted = backend
-            .extract(path, &config.temp_dir)
-            .map_err(|err| AppError::CommandError(err.to_string()))?;
+        let extracted_package = backend.extract(&options.package, &config.temp_dir).map_err(|err| AppError::CommandError(err.to_string()))?;
 
         // Устанавливаем
-        installer
-            .install(&extracted)
-            .map_err(|err| AppError::CommandError(err.to_string()))?;
+        installer.install(&extracted_package).map_err(|err| AppError::CommandError(err.to_string()))?;
 
         // Если ostree включён — делаем коммит
-        if let Some(ostree) = ostree {
-            let packages = installer
-                .list_packages()
-                .map_err(|err| AppError::CommandError(err.to_string()))?;
+        if config.ostree.enabled {
+            let packages = installer.list_packages().map_err(|err| AppError::CommandError(err.to_string()))?;
 
-            let mut files = Vec::new();
-            for pkg in &packages {
-                files.extend(installer.list_files(&pkg.name).map_err(|err| AppError::CommandError(err.to_string()))?);
+            let mut packages_files = Vec::new();
+            for package in &packages {
+                packages_files.extend(installer.list_files(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?);
             }
 
             let diff = PackageDiff {
-                added:   vec![extracted.name.clone()],
+                added:   vec![extracted_package.name.clone()],
                 removed: vec![],
                 updated: vec![],
             };
 
-            ostree
-                .commit(files, &diff)
-                .map_err(|err| AppError::CommandError(err.to_string()))?;
+            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff).map_err(|err| AppError::CommandError(err.to_string()))?;
         }
 
         Ok(())
@@ -67,44 +54,34 @@ pub(crate) fn install(
 }
 
 pub(crate) fn remove(
-    opts: RemoveOptions,
+    options: RemoveOptions,
 ) -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
-        let packages = installer.list_packages().map_err(|err| AppError::CommandError(err.to_string()))?;
+    move |installer, ostree, config, database, backends| {
+        let package = database.get_package(&options.package).map_err(|err| AppError::CommandError(err.to_string()))?.ok_or_else(|| AppError::CommandError(format!("Package not found: {}", options.package)))?;
 
-        if !packages.iter().any(|p| p.name == opts.package) {
-            return Err(AppError::CommandError(
-                format!("Package not found: {}", opts.package)
-            ));
-        }
+        installer.remove(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?;
 
-        // Удаляем пакет
-        installer.remove(&opts.package).map_err(|e| AppError::CommandError(e.to_string()))?;
+        if config.ostree.enabled {
+            let packages = installer.list_packages().map_err(|err| AppError::CommandError(err.to_string()))?;
 
-        if let Some(ostree) = ostree {
-            let packages = installer
-                .list_packages()
-                .map_err(|err| AppError::CommandError(err.to_string()))?;
-
-            let mut files = Vec::new();
-            for pkg in &packages {
-                files.extend(installer.list_files(&pkg.name).map_err(|err| AppError::CommandError(err.to_string()))?);
+            let mut packages_files = Vec::new();
+            for package in &packages {
+                packages_files.extend(installer.list_files(&package.name).map_err(|err| AppError::CommandError(err.to_string()))?);
             }
 
             let diff = PackageDiff {
                 added:   vec![],
-                removed: vec![opts.package.clone()],
+                removed: vec![options.package.clone()],
                 updated: vec![],
             };
 
-            ostree
-                .commit(files, &diff)
-                .map_err(|e| AppError::CommandError(e.to_string()))?;
+            ostree.ok_or_else(|| AppError::CommandError(String::from("OSTree not available")))?.commit(packages_files, &diff).map_err(|err| AppError::CommandError(err.to_string()))?;
         }
 
         Ok(())
@@ -112,40 +89,43 @@ pub(crate) fn remove(
 }
 
 pub(crate) fn update(
-    opts: UpdateOptions,
+    options: UpdateOptions,
 ) -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
 
 pub(crate) fn upgrade(
-    opts: UpgradeOptions,
+    options: UpgradeOptions,
 ) -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
 
 pub(crate) fn search(
-    opts: SearchOptions,
+    options: SearchOptions,
 ) -> impl FnOnce(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
@@ -156,9 +136,10 @@ pub(crate) fn show(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
@@ -169,9 +150,10 @@ pub(crate) fn files(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
@@ -182,9 +164,10 @@ pub(crate) fn deps(
     &mut Installer,
     Option<&OStreeRepo>,
     &UpacConfig,
+    &Database,
     &[Box<dyn Backend>],
 ) -> AppResult<()> {
-    move |installer, ostree, config, backends| {
+    move |installer, ostree, config, database, backends| {
         todo!()
     }
 }
